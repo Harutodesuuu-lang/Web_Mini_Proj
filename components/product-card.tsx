@@ -1,5 +1,4 @@
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   Card,
   CardAction,
@@ -47,26 +46,28 @@ export function CardImage({
     FALLBACK_IMAGE;
 
   return (
-    <Card className="relative mx-auto w-full max-w-sm pt-0 overflow-hidden">
+    <Card className="relative h-full w-full overflow-hidden pt-0">
       <div className="absolute inset-0 z-30 aspect-video bg-black/35" />
       <img
         src={imageUrl}
         alt="Event cover"
-        className="relative z-20 aspect-video w-full object-cover "
+        className="relative z-20 aspect-video w-full object-cover"
       />
-      <CardHeader>
+      <CardHeader className="space-y-2 p-4 sm:p-5">
         <CardAction>
           <Badge variant="secondary">{price} USD</Badge>
         </CardAction>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>
+        <CardTitle className="line-clamp-1 text-base sm:text-lg">{title}</CardTitle>
+        <CardDescription className="text-xs sm:text-sm">
           Type: {category.name}
           <br />
           <div className="line-clamp-2">Desc: {description}</div>
         </CardDescription>
       </CardHeader>
-      <CardFooter>
-        <Button className="w-full">View</Button>
+      <CardFooter className="p-4 pt-0 sm:p-5 sm:pt-0">
+        <span className="inline-flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground">
+          View
+        </span>
       </CardFooter>
     </Card>
   );

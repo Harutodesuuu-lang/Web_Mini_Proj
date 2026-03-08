@@ -19,7 +19,16 @@ type NavigationItem = {
   href: string;
 }[];
 
-const Navbar = ({ navigationData }: { navigationData: NavigationItem }) => {
+const fallbackNavigationData: NavigationItem = [
+  { title: "Home", href: "/" },
+  { title: "Products", href: "/products" },
+  { title: "Users", href: "/users" },
+  { title: "Admin", href: "/admin" },
+];
+
+const Navbar = ({ navigationData }: { navigationData?: NavigationItem }) => {
+  const menuItems = navigationData ?? fallbackNavigationData;
+
   return (
     <header className="bg-background sticky top-0 z-50">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-8 px-4 py-7 sm:px-6">
@@ -30,14 +39,14 @@ const Navbar = ({ navigationData }: { navigationData: NavigationItem }) => {
           <Link href="/products" className="hover:text-primary max-md:hidden">
             Products
           </Link>
-          <Link href="#">
+          <Link href="/">
             <Logo className="text-foreground gap-3" />
           </Link>
           <Link href="/users" className="hover:text-primary max-md:hidden">
             Users
           </Link>
-          <Link href="#" className="hover:text-primary max-md:hidden">
-            Contacts
+          <Link href="/admin" className="hover:text-primary max-md:hidden">
+            Admin
           </Link>
         </div>
 
@@ -56,9 +65,11 @@ const Navbar = ({ navigationData }: { navigationData: NavigationItem }) => {
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-56" align="end">
               <DropdownMenuGroup>
-                {navigationData?.map((item, index) => (
-                  <DropdownMenuItem key={index}>
-                    <Link href={item.href}>{item.title}</Link>
+                {menuItems.map((item, index) => (
+                  <DropdownMenuItem key={index} asChild>
+                    <Link href={item.href} className="w-full">
+                      {item.title}
+                    </Link>
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuGroup>

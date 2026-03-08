@@ -2,8 +2,8 @@ import { SkeletonUserCard } from "@/components/user-skeleton";
 
 export default function UserLoading() {
   return (
-    <main className="container mx-auto">
-      <section className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+    <main className="container mx-auto px-4 py-6 sm:px-6 sm:py-8">
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
         {[...Array(15)].map((_, index) => (
           <SkeletonUserCard key={index} />
         ))}

@@ -29,6 +29,26 @@ const nextConfig: NextConfig = {
         hostname: "placeimg.com",
         pathname: "/**",
       },
+      {
+        protocol: "https",
+        hostname: "images.com",
+        pathname: "/**",
+      },
+      {
+        protocol: "https",
+        hostname: "images.unsplash.com",
+        pathname: "/**",
+      },
+      {
+        protocol: "https",
+        hostname: "i.pinimg.com",
+        pathname: "/**",
+      },
+      {
+        protocol: "https",
+        hostname: "www.animationmagazine.net",
+        pathname: "/**",
+      },
     ],
   },
 };

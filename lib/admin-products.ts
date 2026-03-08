@@ -18,11 +18,11 @@ function getBaseUrl() {
   return BASE_URL;
 }
 
-async function requestFakeApi<T>(
+async function requestApi(
   path: string,
   init?: RequestInit,
   errorMessage?: string,
-): Promise<T> {
+): Promise<unknown> {
   const response = await fetch(`${getBaseUrl()}${path}`, {
     ...init,
     headers: {
@@ -34,30 +34,33 @@ async function requestFakeApi<T>(
 
   if (!response.ok) {
     const responseText = await response.text();
-    throw new Error(`${errorMessage ?? "API request failed"}`);
+    throw new Error(
+      `${errorMessage ?? "API request failed"}${responseText ? `: ${responseText}` : ""}`,
+    );
   }
 
   if (response.status === 204) {
-    return undefined as T;
+    return undefined;
   }
 
-  return (await response.json()) as T;
+  return await response.json();
 }
 
 // Fetch Product from API
 export async function getProducts(): Promise<ProductResponse[]> {
-  return requestFakeApi<ProductResponse[]>(
+  const data = await requestApi(
     "/api/v1/products",
     { method: "GET" },
     "Failed to fetch products",
   );
+  return data as ProductResponse[];
 }
 
 // Create Product
 export async function createProduct(
   input: ProductInput,
 ): Promise<ProductResponse> {
-  return requestFakeApi<ProductResponse>(
+  const data = await requestApi(
     "/api/v1/products",
     {
       method: "POST",
@@ -65,6 +68,7 @@ export async function createProduct(
     },
     "Failed to create product",
   );
+  return data as ProductResponse;
 }
 
 // Update Product
@@ -72,21 +76,22 @@ export async function updateProduct(
   id: string,
   input: ProductInput,
 ): Promise<ProductResponse> {
-  return requestFakeApi<ProductResponse>(
+  const data = await requestApi(
     `/api/v1/products/${id}`,
     {
       method: "PUT",
       body: JSON.stringify(input),
     },
-    `Failed to update product ${id}`,
+    `Failed to update product `,
   );
+  return data as ProductResponse;
 }
 
 // Delete Product
 export async function deleteProduct(id: string): Promise<void> {
-  await requestFakeApi<unknown>(
+  await requestApi(
     `/api/v1/products/${id}`,
     { method: "DELETE" },
-    `Failed to delete product ${id}`,
+    `Failed to delete product`,
   );
 }

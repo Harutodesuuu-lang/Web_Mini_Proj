@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 export default function UsersError({
@@ -10,9 +11,16 @@ export default function UsersError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const router = useRouter();
+
   useEffect(() => {
     console.error(error);
   }, [error]);
+
+  const handleRetry = () => {
+    reset();
+    router.refresh();
+  };
 
   return (
     <main className="container mx-auto py-12">
@@ -25,8 +33,9 @@ export default function UsersError({
         </p>
         <div className="flex justify-center gap-3">
           <button
-            onClick={() => reset()}
-            className="rounded-md bg-red-600 px-4 py-2 text-white hover:bg-red-700"
+            type="button"
+            onClick={handleRetry}
+            className="cursor-pointer rounded-md bg-red-600 px-4 py-2 text-white hover:bg-red-700 active:scale-[0.99]"
           >
             Retry
           </button>

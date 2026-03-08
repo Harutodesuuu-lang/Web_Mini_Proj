@@ -13,6 +13,17 @@ import Image from "next/image";
 const FALLBACK_IMAGE =
   "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=1200&q=80";
 
+const ALLOWED_IMAGE_HOSTS = new Set([
+  "api.escuelajs.co",
+  "i.imgur.com",
+  "placehold.co",
+  "placeimg.com",
+  "images.com",
+  "images.unsplash.com",
+  "i.pinimg.com",
+  "www.animationmagazine.net",
+]);
+
 function normalizeImageUrl(value: string): string | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -31,6 +42,18 @@ function normalizeImageUrl(value: string): string | null {
   return trimmed.replace(/^['"]|['"]$/g, "");
 }
 
+function isAllowedImageUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return (
+      (parsed.protocol === "https:" || parsed.protocol === "http:") &&
+      ALLOWED_IMAGE_HOSTS.has(parsed.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function CardImage({
   images = [
     "https://i.pinimg.com/1200x/27/5e/27/275e2713ec14a862351468ac84a17eb9.jpg",
@@ -43,7 +66,7 @@ export function CardImage({
   const imageUrl =
     images
       .map(normalizeImageUrl)
-      .find((url): url is string => Boolean(url) && /^https?:\/\//.test(url)) ??
+      .find((url): url is string => Boolean(url) && isAllowedImageUrl(url)) ??
     FALLBACK_IMAGE;
 
   return (

@@ -354,7 +354,7 @@ export default function AdminDashboardClient({
         </div>
       </div>
 
-      <div className="grid gap-8 xl:grid-cols-[1fr_320px]">
+      <div className="grid gap-8 xl:items-start xl:grid-cols-[1fr_320px]">
         <div className="order-2 rounded-2xl border bg-card p-5 shadow-sm xl:order-1">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-xl font-semibold">Product Inventory</h2>
@@ -463,7 +463,7 @@ export default function AdminDashboardClient({
           </div>
         </div>
 
-        <aside className="order-1 rounded-2xl border bg-card p-5 shadow-sm xl:order-2">
+        <aside className="order-1 h-fit self-start rounded-2xl border bg-card p-5 shadow-sm xl:order-2">
           <h2 className="text-xl font-semibold">
             {editingId === null
               ? "Create Product"

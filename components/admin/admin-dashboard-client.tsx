@@ -1,14 +1,15 @@
 "use client";
 
-import { ProductResponse } from "@/lib/type/product";
+import { Category, ProductResponse } from "@/lib/type/product";
+import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { Controller, useForm } from "react-hook-form";
+import { z } from "zod";
 
 type AdminStats = {
   totalProducts: number;
   totalCategories: number;
-  avgPrice: number;
-  topPrice: number;
 };
 
 type AdminDashboardClientProps = {
@@ -16,31 +17,144 @@ type AdminDashboardClientProps = {
   stats: AdminStats;
 };
 
-type ProductFormState = {
-  title: string;
-  description: string;
-  price: string;
-  categoryId: string;
-  images: string;
-};
+const formSchema = z.object({
+  title: z.string().trim().min(1, "Title is required atleas."),
+  description: z
+    .string()
+    .trim()
+    .min(5, "Description is required atleast 5 chatacters."),
+  price: z.coerce
+    .number({
+      invalid_type_error: "This field must be a number",
+    })
+    .min(1, { message: "This field is required" }),
+  categoryId: z.preprocess(
+    (v) => Number(v),
+    z.number().int().positive("Category is required"),
+  ),
+  images: z
+    .custom<FileList | null>()
+    .refine((files) => files && files.length > 0, "Please choose an image"),
+});
 
-const EMPTY_FORM: ProductFormState = {
+type ProductFormValues = z.infer<typeof formSchema>;
+
+const EMPTY_FORM: ProductFormValues = {
   title: "",
   description: "",
-  price: "",
-  categoryId: "1",
-  images: "",
+  price: 0,
+  categoryId: 0,
+  images: null,
 };
 
-function normalizeImages(value: string) {
-  return value
-    .split(/[\n,]/g)
-    .map((item) => item.trim())
-    .filter(Boolean);
+const baseAPI =
+  process.env.NEXT_PUBLIC_API ??
+  process.env.NEXT_PUBLIC_API_URL ??
+  "https://api.escuelajs.co";
+
+async function uploadImageToServer(file: File): Promise<{ location: string }> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch(`${baseAPI}/api/v1/files/upload`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Upload failed: ${res.status} ${text}`);
+  }
+
+  return (await res.json()) as { location: string };
+}
+
+async function insertProduct(payload: {
+  title: string;
+  description: string;
+  price: number;
+  categoryId: number;
+  images: string[];
+}): Promise<ProductResponse> {
+  const res = await fetch(`${baseAPI}/api/v1/products`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Insert product failed: ${res.status} ${text}`);
+  }
+
+  return (await res.json()) as ProductResponse;
+}
+
+async function updateProduct(
+  id: string,
+  payload: {
+    title: string;
+    description: string;
+    price: number;
+    categoryId: number;
+    images: string[];
+  },
+): Promise<ProductResponse> {
+  const res = await fetch(`${baseAPI}/api/v1/products/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Update product failed: ${res.status} ${text}`);
+  }
+
+  return (await res.json()) as ProductResponse;
+}
+
+async function deleteProduct(id: string): Promise<void> {
+  const res = await fetch(`${baseAPI}/api/v1/products/${id}`, {
+    method: "DELETE",
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Delete product failed: ${res.status} ${text}`);
+  }
 }
 
 function getCategoryId(product: ProductResponse) {
-  return String(product.category?.id ?? 1);
+  return product.category?.id ?? 0;
+}
+
+function extractCategories(products: ProductResponse[]): Category[] {
+  const byId = new Map<number, Category>();
+  products.forEach((product) => {
+    if (product.category?.id && product.category?.name) {
+      byId.set(product.category.id, product.category);
+    }
+  });
+  return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function compactCategoryLabel(name: string) {
+  const cleaned = name.replace(/[\r\n\t]/g, " ").trim();
+  return cleaned.length > 28 ? `${cleaned.slice(0, 28)}...` : cleaned;
+}
+
+function mapUploadErrorMessage(message: string) {
+  const normalized = message.toLowerCase();
+  if (
+    normalized.includes("already exist") ||
+    normalized.includes("unique") ||
+    normalized.includes("sqlite_constraint") ||
+    normalized.includes("product.slug")
+  ) {
+    return "Product already exist.";
+  }
+  return "Product fail to upload.";
 }
 
 export default function AdminDashboardClient({
@@ -49,11 +163,55 @@ export default function AdminDashboardClient({
 }: AdminDashboardClientProps) {
   const [products, setProducts] = useState(initialProducts);
   const [search, setSearch] = useState("");
-  const [form, setForm] = useState<ProductFormState>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [categories, setCategories] = useState<Category[]>(
+    extractCategories(initialProducts),
+  );
+  const [loadingCategories, setLoadingCategories] = useState(true);
+  const [fileInputKey, setFileInputKey] = useState(0);
   const [feedback, setFeedback] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [isPending, startTransition] = useTransition();
+  const form = useForm<ProductFormValues>({
+    resolver: zodResolver(formSchema),
+    defaultValues: EMPTY_FORM,
+  });
+
+  useEffect(() => {
+    async function loadCategories() {
+      try {
+        const res = await fetch(`${baseAPI}/api/v1/categories`);
+        if (!res.ok) {
+          throw new Error("Failed to fetch categories");
+        }
+        const data = (await res.json()) as Category[];
+        if (Array.isArray(data) && data.length > 0) {
+          setCategories(data);
+        }
+      } catch (loadError) {
+        console.error(loadError);
+        setCategories((prev) =>
+          prev.length > 0 ? prev : extractCategories(initialProducts),
+        );
+      } finally {
+        setLoadingCategories(false);
+      }
+    }
+
+    loadCategories();
+  }, [initialProducts]);
+
+  useEffect(() => {
+    if (!feedback) return;
+    const timeout = setTimeout(() => setFeedback(""), 5000);
+    return () => clearTimeout(timeout);
+  }, [feedback]);
+
+  useEffect(() => {
+    if (!error) return;
+    const timeout = setTimeout(() => setError(""), 5000);
+    return () => clearTimeout(timeout);
+  }, [error]);
 
   const filteredProducts = useMemo(() => {
     const query = search.toLowerCase().trim();
@@ -66,112 +224,74 @@ export default function AdminDashboardClient({
     });
   }, [products, search]);
 
-  function resetForm() {
-    setForm(EMPTY_FORM);
+  function onReset() {
+    form.reset(EMPTY_FORM);
     setEditingId(null);
+    setFileInputKey((current) => current + 1);
   }
 
-  function preparePayload() {
-    const payload = {
-      title: form.title.trim(),
-      description: form.description.trim(),
-      price: Number(form.price),
-      categoryId: Number(form.categoryId),
-      images: normalizeImages(form.images),
+  function preparePayload(values: ProductFormValues) {
+    return {
+      title: values.title.trim(),
+      description: values.description.trim(),
+      price: Number(values.price),
+      categoryId: Number(values.categoryId),
+      images: [],
     };
-
-    if (!payload.title) throw new Error("Title is required.");
-    if (!payload.description) throw new Error("Description is required.");
-    if (!Number.isFinite(payload.price) || payload.price <= 0) {
-      throw new Error("Price must be greater than 0.");
-    }
-    if (!Number.isInteger(payload.categoryId) || payload.categoryId <= 0) {
-      throw new Error("Category ID must be a positive integer.");
-    }
-    if (payload.images.length === 0) {
-      throw new Error("At least one image URL is required.");
-    }
-
-    return payload;
   }
 
-  function onCreate() {
+  function onSubmit(values: z.infer<typeof formSchema>) {
     startTransition(async () => {
       setError("");
       setFeedback("");
 
       try {
-        const payload = preparePayload();
-        const response = await fetch("/api/admin/products", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        const data = await response.json();
+        const filesArray = Array.from(values.images);
+        const uploaded = await Promise.all(
+          filesArray.map((file) => uploadImageToServer(file)),
+        );
+        const imageUrls = uploaded.map((item) => item.location);
+        const payload = {
+          ...preparePayload(values),
+          images: imageUrls,
+        };
+        const isEdit = editingId !== null;
+        const data = isEdit
+          ? await updateProduct(String(editingId), payload)
+          : await insertProduct(payload);
 
-        if (!response.ok) {
-          throw new Error(data.message ?? "Unable to create product.");
+        if (isEdit) {
+          setProducts((prev) =>
+            prev.map((item) =>
+              item.id === editingId ? (data as ProductResponse) : item,
+            ),
+          );
+          setFeedback("Product updated successfully.");
+        } else {
+          setProducts((prev) => [data as ProductResponse, ...prev]);
+          setFeedback("Product created successfully.");
         }
 
-        setProducts((prev) => [data as ProductResponse, ...prev]);
-        setFeedback("Product created successfully.");
-        resetForm();
-      } catch (createError) {
-        setError(
-          createError instanceof Error
-            ? createError.message
-            : "Failed to create product.",
-        );
+        onReset();
+      } catch (saveError) {
+        const rawMessage =
+          saveError instanceof Error ? saveError.message : "Unknown error";
+        setError(mapUploadErrorMessage(rawMessage));
       }
     });
   }
 
   function onEdit(product: ProductResponse) {
     setEditingId(product.id);
-    setForm({
+    form.reset({
       title: product.title,
       description: product.description,
-      price: String(product.price),
+      price: product.price,
       categoryId: getCategoryId(product),
-      images: product.images.join(", "),
+      images: null,
     });
     setFeedback("");
     setError("");
-  }
-
-  function onUpdate() {
-    if (editingId === null) return;
-
-    startTransition(async () => {
-      setError("");
-      setFeedback("");
-
-      try {
-        const payload = preparePayload();
-        const response = await fetch(`/api/admin/products/${editingId}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.message ?? "Unable to update product.");
-        }
-
-        setProducts((prev) =>
-          prev.map((item) => (item.id === editingId ? (data as ProductResponse) : item)),
-        );
-        setFeedback("Product updated successfully.");
-        resetForm();
-      } catch (updateError) {
-        setError(
-          updateError instanceof Error
-            ? updateError.message
-            : "Failed to update product.",
-        );
-      }
-    });
   }
 
   function onDelete(productId: number) {
@@ -180,19 +300,12 @@ export default function AdminDashboardClient({
       setFeedback("");
 
       try {
-        const response = await fetch(`/api/admin/products/${productId}`, {
-          method: "DELETE",
-        });
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.message ?? "Unable to delete product.");
-        }
+        await deleteProduct(String(productId));
 
         setProducts((prev) => prev.filter((item) => item.id !== productId));
         setFeedback("Product deleted successfully.");
         if (editingId === productId) {
-          resetForm();
+          onReset();
         }
       } catch (deleteError) {
         setError(
@@ -206,12 +319,14 @@ export default function AdminDashboardClient({
 
   return (
     <section className="space-y-8">
-      <div className="rounded-3xl bg-gradient-to-r from-slate-900 via-sky-800 to-cyan-700 p-6 text-white shadow-lg">
+      <div className="rounded-3xl  from-slate-900 via-sky-800 to-cyan-700 p-6 text-white shadow-lg">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold sm:text-3xl">Admin Dashboard</h1>
+            <h1 className="text-2xl font-semibold sm:text-3xl">
+              Admin Dashboard
+            </h1>
             <p className="mt-2 text-sm text-cyan-100">
-              Manage products with full CRUD operations powered by Fake Shop API.
+              Upload, Update, View and Delete Product
             </p>
           </div>
           <Link
@@ -232,25 +347,15 @@ export default function AdminDashboardClient({
             <p className="text-xs uppercase tracking-wide text-cyan-100">
               Categories
             </p>
-            <p className="mt-1 text-2xl font-semibold">{stats.totalCategories}</p>
-          </div>
-          <div className="rounded-xl bg-white/10 p-4">
-            <p className="text-xs uppercase tracking-wide text-cyan-100">
-              Avg Price
+            <p className="mt-1 text-2xl font-semibold">
+              {stats.totalCategories}
             </p>
-            <p className="mt-1 text-2xl font-semibold">${stats.avgPrice}</p>
-          </div>
-          <div className="rounded-xl bg-white/10 p-4">
-            <p className="text-xs uppercase tracking-wide text-cyan-100">
-              Highest Price
-            </p>
-            <p className="mt-1 text-2xl font-semibold">${stats.topPrice}</p>
           </div>
         </div>
       </div>
 
-      <div className="grid gap-8 xl:grid-cols-[1fr_360px]">
-        <div className="rounded-2xl border bg-card p-5 shadow-sm">
+      <div className="grid gap-8 xl:grid-cols-[1fr_320px]">
+        <div className="order-2 rounded-2xl border bg-card p-5 shadow-sm xl:order-1">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-xl font-semibold">Product Inventory</h2>
             <input
@@ -280,7 +385,9 @@ export default function AdminDashboardClient({
                         {product.description}
                       </p>
                     </td>
-                    <td className="px-3 py-3">{product.category?.name ?? "N/A"}</td>
+                    <td className="px-3 py-3">
+                      {product.category?.name ?? "N/A"}
+                    </td>
                     <td className="px-3 py-3">${product.price}</td>
                     <td className="px-3 py-3">
                       <div className="flex flex-wrap gap-2">
@@ -322,7 +429,9 @@ export default function AdminDashboardClient({
                 <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <p className="text-xs text-muted-foreground">Category</p>
-                    <p className="font-medium">{product.category?.name ?? "N/A"}</p>
+                    <p className="font-medium">
+                      {product.category?.name ?? "N/A"}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">Price</p>
@@ -354,90 +463,194 @@ export default function AdminDashboardClient({
           </div>
         </div>
 
-        <aside className="rounded-2xl border bg-card p-5 shadow-sm">
+        <aside className="order-1 rounded-2xl border bg-card p-5 shadow-sm xl:order-2">
           <h2 className="text-xl font-semibold">
-            {editingId === null ? "Create Product" : `Edit Product #${editingId}`}
+            {editingId === null
+              ? "Create Product"
+              : `Edit Product #${editingId}`}
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Images can be separated by commas or new lines.
+            Choose one or more images from your device.
           </p>
 
-          <div className="mt-4 space-y-3">
-            <input
-              placeholder="Title"
-              value={form.title}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, title: event.target.value }))
-              }
-              className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            onReset={onReset}
+            className="mt-4 space-y-4"
+          >
+            <Controller
+              control={form.control}
+              name="title"
+              render={({ field, fieldState }) => (
+                <div className="space-y-1">
+                  <label htmlFor="title" className="text-sm font-medium">
+                    Product Title
+                  </label>
+                  <input
+                    id="title"
+                    placeholder="Macbook Pro 16 inch"
+                    type="text"
+                    {...field}
+                    className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
+                  />
+                  {fieldState.invalid ? (
+                    <p className="text-xs text-red-600">
+                      {fieldState.error?.message}
+                    </p>
+                  ) : null}
+                </div>
+              )}
             />
-            <textarea
-              placeholder="Description"
-              value={form.description}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, description: event.target.value }))
-              }
-              rows={4}
-              className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
-            />
-            <input
-              type="number"
-              min="1"
-              step="0.01"
-              placeholder="Price"
-              value={form.price}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, price: event.target.value }))
-              }
-              className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
-            />
-            <input
-              type="number"
-              min="1"
-              step="1"
-              placeholder="Category ID"
-              value={form.categoryId}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, categoryId: event.target.value }))
-              }
-              className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
-            />
-            <textarea
-              placeholder="Image URL(s)"
-              value={form.images}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, images: event.target.value }))
-              }
-              rows={3}
-              className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
-            />
-          </div>
 
-          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-            {editingId === null ? (
+            <Controller
+              control={form.control}
+              name="description"
+              render={({ field, fieldState }) => (
+                <div className="space-y-1">
+                  <label htmlFor="description" className="text-sm font-medium">
+                    Product Description
+                  </label>
+                  <textarea
+                    id="description"
+                    rows={4}
+                    placeholder="Product description"
+                    {...field}
+                    className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
+                  />
+                  {fieldState.invalid ? (
+                    <p className="text-xs text-red-600">
+                      {fieldState.error?.message}
+                    </p>
+                  ) : null}
+                </div>
+              )}
+            />
+
+            <Controller
+              control={form.control}
+              name="price"
+              render={({ field, fieldState }) => (
+                <div className="space-y-1">
+                  <label htmlFor="price" className="text-sm font-medium">
+                    Price
+                  </label>
+                  <input
+                    id="price"
+                    type="number"
+                    min="1"
+                    step="0.01"
+                    placeholder="2000"
+                    value={field.value}
+                    onChange={(event) => field.onChange(event.target.value)}
+                    onBlur={field.onBlur}
+                    name={field.name}
+                    ref={field.ref}
+                    className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
+                  />
+                  {fieldState.invalid ? (
+                    <p className="text-xs text-red-600">
+                      {fieldState.error?.message}
+                    </p>
+                  ) : null}
+                </div>
+              )}
+            />
+
+            <Controller
+              control={form.control}
+              name="categoryId"
+              render={({ field, fieldState }) => (
+                <div
+                  className="col-span-12 col-start-auto flex self-end flex-col gap-2 space-y-0 items-start"
+                  data-invalid={fieldState.invalid}
+                >
+                  <label
+                    htmlFor="categoryId"
+                    className="flex w-auto text-sm font-medium"
+                  >
+                    Category
+                  </label>
+                  <select
+                    id="categoryId"
+                    value={String(field.value)}
+                    onChange={(event) => field.onChange(event.target.value)}
+                    onBlur={field.onBlur}
+                    name={field.name}
+                    ref={field.ref}
+                    disabled={loadingCategories || categories.length === 0}
+                    className="w-full border-gray-400 rounded-lg border bg-background px-3 py-2 text-sm disabled:opacity-60"
+                  >
+                    <option value="0">
+                      {loadingCategories
+                        ? "Loading categories..."
+                        : "Select category"}
+                    </option>
+                    {categories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {compactCategoryLabel(category.name)}
+                      </option>
+                    ))}
+                  </select>
+                  {fieldState.invalid ? (
+                    <p className="text-xs text-red-600">
+                      {fieldState.error?.message}
+                    </p>
+                  ) : null}
+                </div>
+              )}
+            />
+
+            <Controller
+              control={form.control}
+              name="images"
+              render={({ field, fieldState }) => (
+                <div className="space-y-1">
+                  <label htmlFor="images" className="text-sm font-medium">
+                    Images
+                  </label>
+                  <input
+                    key={fileInputKey}
+                    id="images"
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(event) => field.onChange(event.target.files)}
+                    onBlur={field.onBlur}
+                    name={field.name}
+                    ref={field.ref}
+                    className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
+                  />
+                  {fieldState.invalid ? (
+                    <p className="text-xs text-red-600">
+                      {fieldState.error?.message}
+                    </p>
+                  ) : null}
+                </div>
+              )}
+            />
+
+            <div className="flex flex-col gap-2 sm:flex-row">
               <button
                 disabled={isPending}
-                onClick={onCreate}
+                type="submit"
                 className="w-full flex-1 rounded-md bg-sky-700 px-4 py-2 text-sm font-medium text-white hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isPending ? "Saving..." : "Create"}
+                {isPending
+                  ? editingId === null
+                    ? "Saving..."
+                    : "Updating..."
+                  : editingId === null
+                    ? "Create"
+                    : "Update"}
               </button>
-            ) : (
               <button
-                disabled={isPending}
-                onClick={onUpdate}
-                className="w-full flex-1 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+                type="reset"
+                className="w-full rounded-md border px-4 py-2 text-sm hover:bg-accent sm:w-auto"
               >
-                {isPending ? "Updating..." : "Update"}
+                Clear
               </button>
-            )}
-            <button
-              onClick={resetForm}
-              className="w-full rounded-md border px-4 py-2 text-sm hover:bg-accent sm:w-auto"
-            >
-              Clear
-            </button>
-          </div>
+            </div>
+          </form>
 
           {feedback ? (
             <p className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">

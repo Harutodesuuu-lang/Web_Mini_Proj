@@ -8,19 +8,10 @@ function buildStats(products: Awaited<ReturnType<typeof getProducts>>) {
       .map((product) => product.category?.name)
       .filter((value): value is string => Boolean(value)),
   );
-  const totalPrice = products.reduce((sum, product) => sum + product.price, 0);
-  const avgPrice =
-    totalProducts === 0 ? 0 : Number((totalPrice / totalProducts).toFixed(2));
-  const topPrice = products.reduce(
-    (maxPrice, product) => Math.max(maxPrice, product.price),
-    0,
-  );
 
   return {
     totalProducts,
     totalCategories: uniqueCategories.size,
-    avgPrice,
-    topPrice,
   };
 }
 

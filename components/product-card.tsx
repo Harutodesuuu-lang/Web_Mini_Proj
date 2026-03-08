@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ProductResponse } from "@/lib/type/product";
+import Image from "next/image";
 
 const FALLBACK_IMAGE =
   "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=1200&q=80";
@@ -48,16 +49,20 @@ export function CardImage({
   return (
     <Card className="relative h-full w-full overflow-hidden pt-0">
       <div className="absolute inset-0 z-30 aspect-video bg-black/35" />
-      <img
+      <Image
         src={imageUrl}
         alt="Event cover"
+        width={1200}
+        height={675}
         className="relative z-20 aspect-video w-full object-cover"
       />
       <CardHeader className="space-y-2 p-4 sm:p-5">
         <CardAction>
           <Badge variant="secondary">{price} USD</Badge>
         </CardAction>
-        <CardTitle className="line-clamp-1 text-base sm:text-lg">{title}</CardTitle>
+        <CardTitle className="line-clamp-1 text-base sm:text-lg">
+          {title}
+        </CardTitle>
         <CardDescription className="text-xs sm:text-sm">
           Type: {category.name}
           <br />
